@@ -789,9 +789,9 @@ void WorldState::Update(const uint32 diff)
                 else
                 {
                     if (urand(0, 1))
-                        str = "Heroes of Azeroth! Our world is under attack! Horrific creatures are swarming from Dark Portal! In " + secsToTimeString(m_darkPortalTimer / IN_MILLISECONDS) + " we gather our forces and bring the fight to their world... Outland!";
+                        str = "Heroes of Azeroth! Our world is under attack! Horrific creatures are swarming from The Dark Portal! In " + secsToTimeString(m_darkPortalTimer / IN_MILLISECONDS) + " we gather our forces and bring the fight to their world... the Outland!";
                     else
-                        str = "Heroes of Azeroth! Demons invaded Azeroth! Help defend our lands near Dark Portal and in " + secsToTimeString(m_darkPortalTimer / IN_MILLISECONDS) + " we strike back to Outland!";
+                        str = "Heroes of Azeroth! Demons invaded Azeroth! Help defend our lands near The Dark Portal and in " + secsToTimeString(m_darkPortalTimer / IN_MILLISECONDS) + " we strike back to the Outland!";
                 }
 
                 sWorld.SendServerMessage(SERVER_MSG_CUSTOM, str.c_str(), nullptr);
