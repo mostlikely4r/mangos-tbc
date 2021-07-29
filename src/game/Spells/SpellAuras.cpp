@@ -367,7 +367,7 @@ Aura::Aura(SpellEntry const* spellproto, SpellEffectIndex eff, int32 const* curr
             }
         }
 
-        // scripting location for custom aura damage
+        // scripting location for custom aura damage - needs to be moved to spellscripting for proper checkcast interaction
         switch (spellproto->Id)
         {
             case 6143: // Frost Ward
@@ -1338,15 +1338,6 @@ void Aura::TriggerSpell()
 //                    case 28114: break;
 //                    // Communique Timer, camp
 //                    case 28346: break;
-                    case 29351:                             // Plague Wave Controller (Slow)
-                    case 30114:                             // Plague Wave Controller (Fast)
-                    {
-                        uint32 spellForTick[6] = { 30116, 30117, 30118, 30119, 30118, 30117 };  // Circling back and forth through the 4 plague areas
-                        uint32 tick = (GetAuraTicks() - 1) % 6;
-
-                        triggerTarget->CastSpell(triggerTarget, spellForTick[tick], TRIGGERED_OLD_TRIGGERED, nullptr, this, casterGUID);
-                        return;
-                    }
 //                    // Silithyst
 //                    case 29519: break;
                     case 29528:                             // Inoculate Nestlewood Owlkin
@@ -2026,8 +2017,6 @@ void Aura::TriggerSpell()
                     caster->CastSpell(triggerTarget, trigger_spell_id, TRIGGERED_OLD_TRIGGERED, nullptr, this);
                 return;
             }
-            case 28059:                                     // Positive Charge
-            case 28084:                                     // Negative Charge
             case 39088:                                     // Positive Charge
             case 39091:                                     // Negative Charge
             {
@@ -2035,14 +2024,6 @@ void Aura::TriggerSpell()
                 float range;
                 switch (auraId)
                 {
-                    case 28059:
-                        buffAuraId = 29659;
-                        range = 13.f;
-                        break;
-                    case 28084:
-                        buffAuraId = 29660;
-                        range = 13.f;
-                        break;
                     case 39088:
                         buffAuraId = 39089;
                         range = 10.f;
@@ -2699,24 +2680,6 @@ void Aura::HandleAuraDummy(bool apply, bool Real)
                         caster->CastSpell(target, 27285, TRIGGERED_OLD_TRIGGERED);
                 return;
             }
-            case 28169:                                     // Mutating Injection
-            {
-                if (m_removeMode == AURA_REMOVE_BY_EXPIRE)
-                    // Embalming Cloud
-                    target->CastSpell(target, 28322, TRIGGERED_OLD_TRIGGERED, nullptr, this);
-                else // Removed by dispell
-                    // Mutagen Explosion
-                    target->CastSpell(target, 28206, TRIGGERED_OLD_TRIGGERED, nullptr, this);
-                // Poison Cloud
-                target->CastSpell(target, 28240, TRIGGERED_OLD_TRIGGERED, nullptr, this);
-                return;
-            }
-            case 28059:                                     // Positive Charge
-                target->RemoveAurasDueToSpell(29659);
-                return;
-            case 28084:                                     // Negative Charge
-                target->RemoveAurasDueToSpell(29660);
-                return;
             case 29104:                                     // Anub'Rekhan Aura
             {
                 if (m_removeMode == AURA_REMOVE_BY_DEATH && target->GetTypeId() == TYPEID_PLAYER)
@@ -5198,10 +5161,7 @@ void Aura::HandleAuraPowerBurn(bool apply, bool /*Real*/)
 
 void Aura::HandlePrayerOfMending(bool apply, bool /*Real*/)
 {
-    if (apply) // only on initial cast apply SP
-        if (const SpellEntry* entry = GetSpellProto())
-            if (GetHolder()->GetAuraCharges() == entry->procCharges)
-                m_modifier.m_amount = GetCaster()->SpellHealingBonusDone(GetTarget(), GetSpellProto(), m_modifier.m_amount, HEAL);
+
 }
 
 void Aura::HandleAuraPeriodicDummy(bool apply, bool Real)
@@ -8732,6 +8692,14 @@ bool SpellAuraHolder::IsSaveToDbHolder() const
         (GetTrackedAuraType() == TRACK_AURA_TYPE_NOT_TRACKED || (GetTrackedAuraType() == TRACK_AURA_TYPE_SINGLE_TARGET && GetCasterGuid() == GetTarget()->GetObjectGuid()));
 }
 
+bool SpellAuraHolder::IsCharm() const
+{
+    for (auto m_aura : m_auras)
+        if (m_aura && IsCharmAura(m_spellProto, m_aura->GetEffIndex()))
+            return true;
+    return false;
+}
+
 void SpellAuraHolder::UnregisterAndCleanupTrackedAuras()
 {
     TrackedAuraType trackedType = GetTrackedAuraType();
@@ -8948,10 +8916,33 @@ void SpellAuraHolder::OnDispel(Unit* dispeller, uint32 dispellingSpellId, uint32
         script->OnDispel(this, dispeller, dispellingSpellId, originalStacks);
 }
 
+uint32 Aura::CalculateAuraEffectValue(Unit* caster, Unit* target, SpellEntry const* spellProto, SpellEffectIndex effIdx, uint32 value)
+{
+    switch (spellProto->EffectApplyAuraName[effIdx])
+    {
+        case SPELL_AURA_SCHOOL_ABSORB:
+        {
+            float DoneActualBenefit = 0.0f;
+            if (SpellBonusEntry const* bonus = sSpellMgr.GetSpellBonusData(spellProto->Id))
+            {
+                DoneActualBenefit = caster->SpellBaseHealingBonusDone(GetSpellSchoolMask(spellProto)) * bonus->direct_damage;
+                DoneActualBenefit *= caster->CalculateLevelPenalty(spellProto);
+
+                value += (int32)DoneActualBenefit;
+            }
+            return value;
+        }
+    }
+    return value;
+}
+
 int32 Aura::OnAuraValueCalculate(Unit* caster, int32 currentValue)
 {
     if (AuraScript* script = GetAuraScript())
-        return script->OnAuraValueCalculate(this, caster, currentValue);
+    {
+        AuraCalcData data(this, caster, GetTarget(), GetSpellProto(), GetEffIndex());
+        return script->OnAuraValueCalculate(data, currentValue);
+    }
     return currentValue;
 }
 
