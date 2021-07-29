@@ -345,6 +345,8 @@ struct boss_brutallusAI : public ScriptedAI, private DialogueHelper
                 break;
             case YELL_INTRO_TAUNT:
                 DoCastSpellIfCan(m_creature, SPELL_BREAK_ICE);
+                // make attackable
+                m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_PLAYER);
                 m_bIsIntroInProgress = false;
                 break;
         }

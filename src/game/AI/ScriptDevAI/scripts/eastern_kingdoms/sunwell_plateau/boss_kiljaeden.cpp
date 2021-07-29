@@ -419,6 +419,8 @@ struct boss_kiljaedenAI : public Scripted_NoMovementAI, private DialogueHelper
 
     uint32 m_uiArmageddonTimer;
 
+    uint32 m_uiIntroTimer;
+
     void Reset() override
     {
         m_uiPhase                   = PHASE_INFERNO;
@@ -426,8 +428,8 @@ struct boss_kiljaedenAI : public Scripted_NoMovementAI, private DialogueHelper
         m_uiMaxShieldOrbs           = 1;
         m_uiShieldOrbCount          = 0;
 
-        m_uiSoulFlyTimer            = 10000;
-        m_uiLegionLightingTimer     = urand(10000, 15000);
+        m_uiSoulFlyTimer            = 11000;
+        m_uiLegionLightingTimer     = urand(11000, 15000);
         m_uiFireBloomTimer          = urand(15000, 20000);
         m_uiShieldOrbTimer          = 30000;
 
@@ -435,15 +437,8 @@ struct boss_kiljaedenAI : public Scripted_NoMovementAI, private DialogueHelper
         m_uiDarknessOfSoulsTimer    = urand(45000, 50000);
 
         m_uiArmageddonTimer         = 20000;
-    }
 
-    void Aggro(Unit* /*pWho*/) override
-    {
-        if (m_pInstance)
-            m_pInstance->SetData(TYPE_KILJAEDEN, IN_PROGRESS);
-
-        DoScriptText(SAY_EMERGE, m_creature);
-        DoCastSpellIfCan(m_creature, SPELL_BIRTH);
+        m_uiIntroTimer              = 11000;
     }
 
     void JustReachedHome() override
@@ -610,6 +605,28 @@ struct boss_kiljaedenAI : public Scripted_NoMovementAI, private DialogueHelper
     {
         if (!m_creature->SelectHostileTarget() || !m_creature->GetVictim())
             return;
+
+        if (m_pInstance)
+        {
+            if (m_pInstance->GetData(TYPE_KILJAEDEN) != IN_PROGRESS)
+            {
+                DoCastSpellIfCan(m_creature, SPELL_BIRTH);
+                m_pInstance->SetData(TYPE_KILJAEDEN, IN_PROGRESS);
+            }
+        }
+
+        if (m_uiIntroTimer)
+        {
+            if (m_uiIntroTimer <= uiDiff)
+            {
+                // make selectable and say intro
+                m_creature->RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_NOT_SELECTABLE);
+                DoScriptText(SAY_EMERGE, m_creature);
+                m_uiIntroTimer = 0;
+            }
+            else
+                m_uiIntroTimer -= uiDiff;
+        }
 
         DialogueUpdate(uiDiff);
 
