@@ -688,6 +688,10 @@ void Map::Update(const uint32& t_diff)
         transport->Update(t_diff);
     }
 
+#ifdef ENABLE_PLAYERBOTS
+    bool hasPlayers = false;
+#endif
+
     // the player iterator is stored in the map object
     // to make sure calls to Map::Remove don't invalidate it
     {
@@ -697,76 +701,13 @@ void Map::Update(const uint32& t_diff)
             { "map_id", std::to_string(i_id) },
             { "instance_id", std::to_string(i_InstanceId) },
             });
+#endif
 
         for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
         {
             Player* player = m_mapRefIter->getSource();
             if (!player || !player->IsInWorld())
                 continue;
-
-            // Update session first
-            WorldSession* pSession = player->GetSession();
-            pSession->UpdateMap(t_diff);
-            ++updatedSessions;
-        }
-        sessions_meas.add_field("count", std::to_string(static_cast<int32>(updatedSessions)));
-    }
-#ifdef ENABLE_PLAYERBOTS
-    bool hasPlayers = false;
-#endif
-
-    /// update players at tick
-    for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
-    {
-        Player* plr = m_mapRefIter->getSource();
-        if (plr && plr->IsInWorld())
-            plr->Update(t_diff);
-
-        if (plr && plr->IsPositionValid())
-        {
-            VisitNearbyCellsOf(plr, grid_object_update, world_object_update);
-
-            // If player is using far sight, visit that object too
-            if (WorldObject* viewPoint = GetWorldObject(plr->GetFarSightGuid()))
-                VisitNearbyCellsOf(viewPoint, grid_object_update, world_object_update);
-        }
-
-#ifdef ENABLE_PLAYERBOTS
-        if (!plr->GetPlayerbotAI() || plr->GetPlayerbotAI()->IsRealPlayer())
-        {
-            if (!hasPlayers)
-                hasPlayers = true;
-        }
-#endif
-    }
-#ifdef ENABLE_PLAYERBOTS
-    if (hasPlayers != hasRealPlayers)
-        hasRealPlayers = hasPlayers;
-#endif
-#else
-#ifdef ENABLE_PLAYERBOTS
-        bool hasPlayers = false;
-#endif
-        for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
-        {
-            Player* player = m_mapRefIter->getSource();
-            if (!player || !player->IsInWorld())
-                continue;
-
-            // Update session first
-            WorldSession* pSession = player->GetSession();
-            pSession->UpdateMap(t_diff);
-
-            player->Update(t_diff);
-
-            if (player->IsPositionValid())
-            {
-                VisitNearbyCellsOf(player, grid_object_update, world_object_update);
-
-                // If player is using far sight, visit that object too
-                if (WorldObject* viewPoint = GetWorldObject(player->GetFarSightGuid()))
-                    VisitNearbyCellsOf(viewPoint, grid_object_update, world_object_update);
-            }
 
 #ifdef ENABLE_PLAYERBOTS
             if (!player->GetPlayerbotAI() || player->GetPlayerbotAI()->IsRealPlayer())
@@ -775,13 +716,39 @@ void Map::Update(const uint32& t_diff)
                     hasPlayers = true;
             }
 #endif
+
+            // Update session first
+            WorldSession* pSession = player->GetSession();
+            pSession->UpdateMap(t_diff);
+#ifdef BUILD_METRICS
+            ++updatedSessions;
+#endif
         }
-#ifdef ENABLE_PLAYERBOTS
-        if (hasPlayers != hasRealPlayers)
-            hasRealPlayers = hasPlayers;
+#ifdef BUILD_METRICS
+        sessions_meas.add_field("count", std::to_string(static_cast<int32>(updatedSessions)));
 #endif
     }
-#endif
+
+    /// update players at tick
+    for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
+    {
+        Player* plr = m_mapRefIter->getSource();
+        if (plr && plr->IsInWorld())
+            plr->Update(t_diff);
+    }
+
+    for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
+    {
+        Player* player = m_mapRefIter->getSource();
+        if (!player->IsInWorld() || !player->IsPositionValid())
+            continue;
+
+        VisitNearbyCellsOf(player, grid_object_update, world_object_update);
+
+        // If player is using far sight, visit that object too
+        if (WorldObject* viewPoint = GetWorldObject(player->GetFarSightGuid()))
+            VisitNearbyCellsOf(viewPoint, grid_object_update, world_object_update);
+    }
 
     // non-player active objects
     if (!m_activeNonPlayers.empty())
@@ -821,8 +788,8 @@ void Map::Update(const uint32& t_diff)
                     }
                 }
             }
-        }
     }
+}
 
     // update all objects
     for (auto wObj : objToUpdate)
@@ -835,14 +802,8 @@ void Map::Update(const uint32& t_diff)
     meas.add_field("count", std::to_string(static_cast<int32>(count)));
 #endif
 
-#ifdef ENABLE_PLAYERBOTS
-    // Send world objects and item update field changes
-    if (HasRealPlayers())
-        SendObjectUpdates();
-#else
     // Send world objects and item update field changes
     SendObjectUpdates();
-#endif
 
     // Don't unload grids if it's battleground, since we may have manually added GOs,creatures, those doesn't load from DB at grid re-load !
     // This isn't really bother us, since as soon as we have instanced BG-s, the whole map unloads as the BG gets ended
@@ -868,12 +829,16 @@ void Map::Update(const uint32& t_diff)
     m_weatherSystem->UpdateWeathers(t_diff);
 
 #ifdef ENABLE_PLAYERBOTS
+    if (hasPlayers != hasRealPlayers)
+        hasRealPlayers = hasPlayers;
+#endif
+
+#ifdef ENABLE_PLAYERBOTS
     if (IsContinent())
     {
         if (!HasRealPlayers() && m_VisibleDistance > 10.0f)
             m_VisibleDistance = 10.0f;
-        
-        if (HasRealPlayers() && m_VisibleDistance < sWorld.GetMaxVisibleDistanceOnContinents())
+        else if (HasRealPlayers() && m_VisibleDistance < sWorld.GetMaxVisibleDistanceOnContinents())
             m_VisibleDistance = sWorld.GetMaxVisibleDistanceOnContinents();
     }
 #endif
