@@ -37,6 +37,7 @@ MapManager::MapManager()
     : i_gridCleanUpDelay(sWorld.getConfig(CONFIG_UINT32_INTERVAL_GRIDCLEAN))
 {
     i_timer.SetInterval(sWorld.getConfig(CONFIG_UINT32_INTERVAL_MAPUPDATE));
+    i_timer.SetIdleInterval(sWorld.getConfig(CONFIG_UINT32_INTERVAL_MAPUPDATE) * 5);
 }
 
 MapManager::~MapManager()
@@ -190,15 +191,29 @@ void MapManager::DeleteInstance(uint32 mapid, uint32 instanceId)
 void MapManager::Update(uint32 diff)
 {
     i_timer.Update(diff);
+    i_timer.IdleUpdate(diff);
     if (!i_timer.Passed())
         return;
 
     for (auto& map : i_maps)
     {
-        if (m_updater.activated())
-            m_updater.schedule_update(new MapUpdateWorker(*map.second, (uint32)i_timer.GetCurrent(), m_updater));
+        if (!map.second->IsContinent() || map.second->HasRealPlayers())
+        {
+            if (m_updater.activated())
+                m_updater.schedule_update(new MapUpdateWorker(*map.second, (uint32)i_timer.GetCurrent(), m_updater));
+            else
+                map.second->Update((uint32)i_timer.GetCurrent());
+        }
         else
-            map.second->Update((uint32)i_timer.GetCurrent());
+        {
+            if (!i_timer.IdlePassed())
+                continue;
+
+            if (m_updater.activated())
+                m_updater.schedule_update(new MapUpdateWorker(*map.second, (uint32)i_timer.GetIdleCurrent(), m_updater));
+            else
+                map.second->Update((uint32)i_timer.GetIdleCurrent());
+        }
     }
 
     if (m_updater.activated())
@@ -222,6 +237,9 @@ void MapManager::Update(uint32 diff)
     }
 
     i_timer.SetCurrent(0);
+
+    if (i_timer.IdlePassed())
+        i_timer.SetIdleCurrent(0);
 }
 
 void MapManager::RemoveAllObjectsInRemoveList()

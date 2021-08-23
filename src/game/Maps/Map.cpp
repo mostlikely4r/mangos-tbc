@@ -697,7 +697,6 @@ void Map::Update(const uint32& t_diff)
             { "map_id", std::to_string(i_id) },
             { "instance_id", std::to_string(i_InstanceId) },
             });
-#endif
 
         for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
         {
@@ -708,14 +707,13 @@ void Map::Update(const uint32& t_diff)
             // Update session first
             WorldSession* pSession = player->GetSession();
             pSession->UpdateMap(t_diff);
-#ifdef BUILD_METRICS
             ++updatedSessions;
-#endif
         }
-#ifdef BUILD_METRICS
         sessions_meas.add_field("count", std::to_string(static_cast<int32>(updatedSessions)));
-#endif
     }
+#ifdef ENABLE_PLAYERBOTS
+    bool hasPlayers = false;
+#endif
 
     /// update players at tick
     for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
@@ -723,20 +721,67 @@ void Map::Update(const uint32& t_diff)
         Player* plr = m_mapRefIter->getSource();
         if (plr && plr->IsInWorld())
             plr->Update(t_diff);
+
+        if (plr && plr->IsPositionValid())
+        {
+            VisitNearbyCellsOf(plr, grid_object_update, world_object_update);
+
+            // If player is using far sight, visit that object too
+            if (WorldObject* viewPoint = GetWorldObject(plr->GetFarSightGuid()))
+                VisitNearbyCellsOf(viewPoint, grid_object_update, world_object_update);
+        }
+
+#ifdef ENABLE_PLAYERBOTS
+        if (!plr->GetPlayerbotAI() || plr->GetPlayerbotAI()->IsRealPlayer())
+        {
+            if (!hasPlayers)
+                hasPlayers = true;
+        }
+#endif
     }
+#ifdef ENABLE_PLAYERBOTS
+    if (hasPlayers != hasRealPlayers)
+        hasRealPlayers = hasPlayers;
+#endif
+#else
+#ifdef ENABLE_PLAYERBOTS
+        bool hasPlayers = false;
+#endif
+        for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
+        {
+            Player* player = m_mapRefIter->getSource();
+            if (!player || !player->IsInWorld())
+                continue;
 
-    for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
-    {
-        Player* player = m_mapRefIter->getSource();
-        if (!player->IsInWorld() || !player->IsPositionValid())
-            continue;
+            // Update session first
+            WorldSession* pSession = player->GetSession();
+            pSession->UpdateMap(t_diff);
 
-        VisitNearbyCellsOf(player, grid_object_update, world_object_update);
+            player->Update(t_diff);
 
-        // If player is using far sight, visit that object too
-        if (WorldObject* viewPoint = GetWorldObject(player->GetFarSightGuid()))
-            VisitNearbyCellsOf(viewPoint, grid_object_update, world_object_update);
+            if (player->IsPositionValid())
+            {
+                VisitNearbyCellsOf(player, grid_object_update, world_object_update);
+
+                // If player is using far sight, visit that object too
+                if (WorldObject* viewPoint = GetWorldObject(player->GetFarSightGuid()))
+                    VisitNearbyCellsOf(viewPoint, grid_object_update, world_object_update);
+            }
+
+#ifdef ENABLE_PLAYERBOTS
+            if (!player->GetPlayerbotAI() || player->GetPlayerbotAI()->IsRealPlayer())
+            {
+                if (!hasPlayers)
+                    hasPlayers = true;
+            }
+#endif
+        }
+#ifdef ENABLE_PLAYERBOTS
+        if (hasPlayers != hasRealPlayers)
+            hasRealPlayers = hasPlayers;
+#endif
     }
+#endif
 
     // non-player active objects
     if (!m_activeNonPlayers.empty())
@@ -790,8 +835,14 @@ void Map::Update(const uint32& t_diff)
     meas.add_field("count", std::to_string(static_cast<int32>(count)));
 #endif
 
+#ifdef ENABLE_PLAYERBOTS
+    // Send world objects and item update field changes
+    if (HasRealPlayers())
+        SendObjectUpdates();
+#else
     // Send world objects and item update field changes
     SendObjectUpdates();
+#endif
 
     // Don't unload grids if it's battleground, since we may have manually added GOs,creatures, those doesn't load from DB at grid re-load !
     // This isn't really bother us, since as soon as we have instanced BG-s, the whole map unloads as the BG gets ended
@@ -819,32 +870,14 @@ void Map::Update(const uint32& t_diff)
 #ifdef ENABLE_PLAYERBOTS
     if (IsContinent())
     {
-        if (!HasRealPlayers())
+        if (!HasRealPlayers() && m_VisibleDistance > 10.0f)
             m_VisibleDistance = 10.0f;
-        else
+        
+        if (HasRealPlayers() && m_VisibleDistance < sWorld.GetMaxVisibleDistanceOnContinents())
             m_VisibleDistance = sWorld.GetMaxVisibleDistanceOnContinents();
     }
 #endif
 }
-
-#ifdef ENABLE_PLAYERBOTS
-bool Map::HasRealPlayers()
-{
-    for (m_mapRefIter = m_mapRefManager.begin(); m_mapRefIter != m_mapRefManager.end(); ++m_mapRefIter)
-    {
-        Player* player = m_mapRefIter->getSource();
-        if (!player || !player->IsInWorld())
-            continue;
-
-        if (!player->GetPlayerbotAI() || player->GetPlayerbotAI()->IsRealPlayer())
-        {
-            return true;
-        }
-    }
-
-    return false;
-}
-#endif
 
 void Map::Remove(Player* player, bool remove)
 {

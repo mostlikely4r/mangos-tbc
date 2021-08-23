@@ -77,7 +77,7 @@ class WorldTimer
 class IntervalTimer
 {
     public:
-        IntervalTimer() : _interval(0), _current(0) {}
+        IntervalTimer() : _interval(0), _current(0), _idle_interval(0), _idle_current(0) {}
 
         void Update(time_t diff)
         {
@@ -85,7 +85,14 @@ class IntervalTimer
             if (_current < 0)
                 _current = 0;
         }
+        void IdleUpdate(time_t diff)
+        {
+            _idle_current += diff;
+            if (_idle_current < 0)
+                _idle_current = 0;
+        }
         bool Passed() const { return _current >= _interval; }
+        bool IdlePassed() const { return _idle_current >= _idle_interval; }
         void Reset()
         {
             if (_current >= _interval)
@@ -94,12 +101,18 @@ class IntervalTimer
 
         void SetCurrent(time_t current) { _current = current; }
         void SetInterval(time_t interval) { _interval = interval; }
+        void SetIdleCurrent(time_t idle_current) { _idle_current = idle_current; }
+        void SetIdleInterval(time_t idle_interval) { _idle_interval = idle_interval; }
         time_t GetInterval() const { return _interval; }
         time_t GetCurrent() const { return _current; }
+        time_t GetIdleInterval() const { return _idle_interval; }
+        time_t GetIdleCurrent() const { return _idle_current; }
 
     private:
         time_t _interval;
         time_t _current;
+        time_t _idle_current;
+        time_t _idle_interval;
 };
 
 class ShortIntervalTimer
