@@ -132,7 +132,7 @@ class Map : public GridRefManager<NGridType>
         virtual void Update(const uint32&);
 
 #ifdef ENABLE_PLAYERBOTS
-        bool HasRealPlayers() { return hasRealPlayers; }
+        bool HasRealPlayers();
 #endif
 
         void MessageBroadcast(Player const*, WorldPacket const&, bool to_self);
@@ -388,10 +388,6 @@ class Map : public GridRefManager<NGridType>
 
         void SendObjectUpdates();
         std::set<Object*> i_objectsToClientUpdate;
-
-#ifdef ENABLE_PLAYERBOTS
-        bool hasRealPlayers;
-#endif
 
     protected:
         MapEntry const* i_mapEntry;
