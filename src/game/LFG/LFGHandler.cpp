@@ -21,6 +21,252 @@
 #include "Globals/ObjectMgr.h"
 #include "World/World.h"
 
+enum ClassRoles
+{
+    LFG_ROLE_NONE = 0x00,
+    LFG_ROLE_TANK = 0x01,
+    LFG_ROLE_HEALER = 0x02,
+    LFG_ROLE_DPS = 0x04
+};
+
+std::map<uint32, int32> GetTalentTrees(Player* _player)
+{
+    std::map<uint32, int32> tabs;
+    for (uint32 i = 0; i < uint32(3); i++)
+        tabs[i] = 0;
+
+    uint32 classMask = _player->getClassMask();
+    for (uint32 i = 0; i < sTalentStore.GetNumRows(); ++i)
+    {
+        TalentEntry const *talentInfo = sTalentStore.LookupEntry(i);
+        if (!talentInfo)
+            continue;
+
+        TalentTabEntry const *talentTabInfo = sTalentTabStore.LookupEntry(talentInfo->TalentTab);
+        if (!talentTabInfo)
+            continue;
+
+        if ((classMask & talentTabInfo->ClassMask) == 0)
+            continue;
+
+        int maxRank = 0;
+        for (int rank = MAX_TALENT_RANK - 1; rank >= 0; --rank)
+        {
+            if (!talentInfo->RankID[rank])
+                continue;
+
+            uint32 spellid = talentInfo->RankID[rank];
+            if (spellid && _player->HasSpell(spellid))
+                maxRank = rank + 1;
+
+        }
+        tabs[talentTabInfo->tabpage] += maxRank;
+    }
+
+    return tabs;
+}
+
+int GetHighestTalentTree(Player* _player)
+{
+    if (_player->getLevel() >= 10 && !_player->GetFreeTalentPoints())
+    {
+        std::map<uint32, int32> tabs = GetTalentTrees(_player);
+
+        int tab = -1, max = 0;
+        for (uint32 i = 0; i < uint32(3); i++)
+        {
+            if (tab == -1 || max < tabs[i])
+            {
+                tab = i;
+                max = tabs[i];
+            }
+        }
+        return tab;
+    }
+    else
+    {
+        int tab = 0;
+
+        switch (_player->getClass())
+        {
+        case CLASS_MAGE:
+            tab = 1;
+            break;
+        case CLASS_PALADIN:
+            tab = 2;
+            break;
+        case CLASS_PRIEST:
+            tab = 1;
+            break;
+        }
+        return tab;
+    }
+}
+
+ClassRoles CalculateTalentRoles(Player* _player)
+{
+    ClassRoles role = LFG_ROLE_NONE;
+    int tab = GetHighestTalentTree(_player);
+    switch (_player->getClass())
+    {
+    case CLASS_PRIEST:
+        if (tab == 2)
+            role = LFG_ROLE_DPS;
+        else
+            role = LFG_ROLE_HEALER;
+        break;
+    case CLASS_SHAMAN:
+        if (tab == 2)
+            role = LFG_ROLE_HEALER;
+        else
+            role = LFG_ROLE_DPS;
+        break;
+    case CLASS_WARRIOR:
+        if (tab == 2)
+            role = LFG_ROLE_TANK;
+        else
+            role = LFG_ROLE_DPS;
+        break;
+    case CLASS_PALADIN:
+        if (tab == 0)
+            role = LFG_ROLE_HEALER;
+        else if (tab == 1)
+            role = LFG_ROLE_TANK;
+        else if (tab == 2)
+            role = LFG_ROLE_DPS;
+        break;
+    case CLASS_DRUID:
+        if (tab == 0)
+            role = LFG_ROLE_DPS;
+        else if (tab == 1)
+            role = (ClassRoles)(LFG_ROLE_TANK | LFG_ROLE_DPS);
+        else if (tab == 2)
+            role = LFG_ROLE_HEALER;
+        break;
+    default:
+        role = LFG_ROLE_DPS;
+        break;
+    }
+    return role;
+}
+
+bool IsCompatibleWithPlayer(Player* newPlayer, Player* oldPlayer)
+{
+    // new player
+    ClassRoles newRole = CalculateTalentRoles(newPlayer);
+
+    // other player
+    ClassRoles oldRole = CalculateTalentRoles(oldPlayer);
+
+    // check if same role/class
+    // skip if both tanks
+    if ((newRole & LFG_ROLE_TANK) && (oldRole & LFG_ROLE_TANK))
+    {
+        return false;
+    }
+
+    // skip if both heals
+    if ((newRole & LFG_ROLE_HEALER) && (oldRole & LFG_ROLE_HEALER))
+    {
+        return false;
+    }
+
+    // skip if dps of same class
+    if ((newRole & LFG_ROLE_DPS) && (oldRole & LFG_ROLE_DPS))
+    {
+        if (newPlayer->getClass() == oldPlayer->getClass())
+            return false;
+    }
+
+    return true;
+}
+
+bool IsCompatibleWithGroup(Player* newPlayer, Group* group, bool sameClass = false)
+{
+    // new player
+    ClassRoles newRole = CalculateTalentRoles(newPlayer);
+
+    // group
+    if (group)
+    {
+        uint32 dps = 0;
+        uint32 heal = 0;
+        uint32 tank = 0;
+        uint32 offtank = 0;
+        uint32 offdps = 0;
+        uint32 notCompatible = 0;
+        uint32 sameDpsClass = 0;
+        uint8 myClass = newPlayer->getClass();
+        bool strictCheck = group->GetMembersCount() > 2;
+
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->getSource();
+
+            if (!member)
+                continue;
+
+            //if (strictCheck && !IsCompatibleWithPlayer(newPlayer, member))
+            //    return false;
+
+            ClassRoles mRole = CalculateTalentRoles(member);
+
+            if (mRole & LFG_ROLE_DPS)
+            {
+                // feral druid
+                if (mRole & LFG_ROLE_DPS && (tank || dps < 3))
+                {
+                    offdps++;
+                }
+                else
+                    dps++;
+
+                if (member->getClass() == myClass)
+                    sameDpsClass++;
+            }
+
+            if (mRole & LFG_ROLE_HEALER)
+                heal++;
+
+            if (mRole & LFG_ROLE_TANK)
+            {
+                // feral druid
+                if (mRole & LFG_ROLE_TANK && (!tank || dps >= 3))
+                {
+                    offtank++;
+                }
+                else
+                    tank++;
+            }
+        }
+
+        // handle hybrid (feral)
+        // if no tank count feral druid as tank to speed up queue
+        if (!tank && offtank)
+        {
+            tank++;
+            offtank--;
+            offdps--;
+        }
+        // if more hybrids in group count as dps
+        if (dps < 3 && offdps && offtank)
+        {
+            dps += offdps;
+        }
+
+        if ((dps >= 3 || sameDpsClass) && (newRole & LFG_ROLE_DPS) && !(newRole & LFG_ROLE_TANK))
+            return false;
+
+        if (heal >= 1 && (newRole & LFG_ROLE_HEALER))
+            return false;
+
+        if (tank >= 1 && (newRole & LFG_ROLE_TANK) && !(newRole & LFG_ROLE_DPS))
+            return false;
+    }
+
+    return true;
+}
+
 static void AttemptJoin(Player* _player)
 {
     // skip not can autojoin cases and player group case
@@ -54,6 +300,18 @@ static void AttemptJoin(Player* _player)
         // skip player in a battleground, not group leader, group is full cases
         if (grp && (grp->isBattleGroup() || grp->IsFull() || grp->GetLeaderGuid() != plr->GetObjectGuid()))
             continue;
+
+        // check roles based on talents
+        if (grp)
+        {
+            if (!IsCompatibleWithGroup(_player, grp))
+                continue;
+        }
+        else
+        {
+            if (!IsCompatibleWithPlayer(_player, plr))
+                continue;
+        }
 
         // attempt create group, or skip
         if (!grp)
@@ -118,6 +376,18 @@ static void AttemptAddMore(Player* _player)
         // skip players in groups
         if (plr->GetGroup())
             continue;
+
+        // check roles based on talents
+        if (_group)
+        {
+            if (!IsCompatibleWithGroup(plr, _group))
+                continue;
+        }
+        else
+        {
+            if (!IsCompatibleWithPlayer(plr, _player))
+                continue;
+        }
 
         // attempt create group if needed, or stop attempts
         if (!_group)
