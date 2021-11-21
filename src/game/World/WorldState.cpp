@@ -300,7 +300,7 @@ void WorldState::Load()
     SpawnWarEffortGos();
     if (m_siData.m_state == STATE_1_ENABLED)
     {
-        StartScourgeInvasion();
+        StartScourgeInvasion(true);
         HandleDefendedZones();
     }
     RespawnEmeraldDragons();
@@ -308,6 +308,7 @@ void WorldState::Load()
     StartSunwellGatePhase();
     HandleSunsReachSubPhaseTransition(m_sunsReachData.m_subphaseMask, true);
     StartExpansionEvent();
+    StartArenaSeason();
 }
 
 void WorldState::Save(SaveIds saveId)
@@ -1375,15 +1376,15 @@ void WorldState::SetScourgeInvasionState(SIState state)
     
     m_siData.m_state = state;
     if (oldState == STATE_0_DISABLED)
-        StartScourgeInvasion();
+        StartScourgeInvasion(false);
     else if (state == STATE_0_DISABLED)
         StopScourgeInvasion();
     Save(SAVE_ID_SCOURGE_INVASION);
 }
 
-void WorldState::StartScourgeInvasion()
+void WorldState::StartScourgeInvasion(bool resume)
 {
-    sGameEventMgr.StartEvent(GAME_EVENT_SCOURGE_INVASION);
+    sGameEventMgr.StartEvent(GAME_EVENT_SCOURGE_INVASION, false, resume);
     BroadcastSIWorldstates();
     if (m_siData.m_state == STATE_1_ENABLED)
     {
@@ -2653,6 +2654,33 @@ void WorldState::StartExpansionEvent()
     {
         sGameEventMgr.StartEvent(GAME_EVENT_BEFORE_THE_STORM);
         RespawnHighlordKruul();
+    }
+}
+
+void WorldState::StartArenaSeason()
+{
+    if (m_expansion > EXPANSION_NONE)
+    {
+        uint32 seasonEvent = 0;
+        switch (sWorld.getConfig(CONFIG_UINT32_ARENA_SEASON_ID))
+        {
+        case 1:
+            seasonEvent = 53; // season 1
+            break;
+        case 2:
+            seasonEvent = 54; // season 2
+            break;
+        case 3:
+            seasonEvent = 55; // season 3
+            break;
+        case 4:
+            seasonEvent = 56; // season 4
+            break;
+        default:
+            break;
+        }
+        if (seasonEvent)
+            sGameEventMgr.StartEvent(seasonEvent);
     }
 }
 

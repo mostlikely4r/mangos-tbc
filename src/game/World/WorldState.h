@@ -498,7 +498,7 @@ class WorldState
         std::string GetAQPrintout();
 
         void SetScourgeInvasionState(SIState state);
-        void StartScourgeInvasion();
+        void StartScourgeInvasion(bool resume);
         void StopScourgeInvasion();
         uint32 GetSIRemaining(SIRemaining remaining) const;
         uint32 GetSIRemainingByZone(uint32 zoneId) const;
@@ -639,6 +639,9 @@ class WorldState
         bool m_highlordKruulSpawned;
         uint32 m_highlordKruulTimer;
         uint8 m_highlordKruulChosenPosition;
+
+        // Start Arena Season
+        void StartArenaSeason();
 };
 
 #define sWorldState MaNGOS::Singleton<WorldState>::Instance()
