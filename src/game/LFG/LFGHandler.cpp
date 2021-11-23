@@ -214,7 +214,7 @@ bool IsCompatibleWithGroup(Player* newPlayer, Group* group, bool sameClass = fal
             if (mRole & LFG_ROLE_DPS)
             {
                 // feral druid
-                if (mRole & LFG_ROLE_DPS && (tank || dps < 3))
+                if (mRole & LFG_ROLE_TANK && (tank || dps < 3))
                 {
                     offdps++;
                 }
@@ -231,7 +231,7 @@ bool IsCompatibleWithGroup(Player* newPlayer, Group* group, bool sameClass = fal
             if (mRole & LFG_ROLE_TANK)
             {
                 // feral druid
-                if (mRole & LFG_ROLE_TANK && (!tank || dps >= 3))
+                if (mRole & LFG_ROLE_DPS && (!tank || dps >= 3))
                 {
                     offtank++;
                 }
