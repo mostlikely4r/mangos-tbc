@@ -40,6 +40,19 @@ if(NOT BUILD_SCRIPTDEV)
   endforeach()
 endif()
 
+if(NOT BUILD_ELUNA)
+  # exclude Eluna LUA Engine
+  set (EXCLUDE_DIR "LuaEngine/")
+  foreach (TMP_PATH ${LIBRARY_SRCS})
+      string (FIND ${TMP_PATH} ${EXCLUDE_DIR} EXCLUDE_DIR_FOUND)
+      if (NOT ${EXCLUDE_DIR_FOUND} EQUAL -1)
+          list(REMOVE_ITEM LIBRARY_SRCS ${TMP_PATH})
+      endif ()
+  endforeach()
+else()
+add_definitions(-DBUILD_ELUNA -DCMANGOS -DTBC)
+endif()
+
 if(NOT BUILD_PLAYERBOT)
   # exclude Playerbot folder
   set (EXCLUDE_DIR "PlayerBot/")
