@@ -951,14 +951,14 @@ void Map::Update(const uint32& t_diff)
 
                 isInActiveArea = IsContinent() ? (activeArea == MAP_NO_AREA ? false : HasActiveAreas(activeArea)) : HasRealPlayers();
 
-                if (isInActiveArea)
+                /*if (isInActiveArea)
                 {
                     if (maxDiff > 200 && IsContinent())
                     {
                         if (find(ActiveZones.begin(), ActiveZones.end(), plr->GetZoneId()) == ActiveZones.end())
                             isInActiveArea = false;
                     }
-                }
+                }*/
             }
             if (plr->GetPlayerbotAI() && plr->GetPlayerbotAI()->HasRealPlayerMaster())
                 isInActiveArea = true;
