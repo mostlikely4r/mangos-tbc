@@ -996,7 +996,7 @@ void Map::Update(const uint32& t_diff)
 
 #ifdef ENABLE_PLAYERBOTS
         if (!player->isRealPlayer())
-            continue;
+            player->GetVisibilityData().SetVisibilityDistanceOverride(VisibilityDistanceType::Tiny);
 #endif
 
         // update objects beyond visibility distance
@@ -1008,6 +1008,11 @@ void Map::Update(const uint32& t_diff)
         // If player is using far sight, visit that object too
         if (WorldObject* viewPoint = GetWorldObject(player->GetFarSightGuid()))
             VisitNearbyCellsOf(viewPoint, grid_object_update, world_object_update);
+
+#ifdef ENABLE_PLAYERBOTS
+        if (!player->isRealPlayer())
+            player->GetVisibilityData().SetVisibilityDistanceOverride(VisibilityDistanceType::Normal);
+#endif
     }
 
     // non-player active objects
