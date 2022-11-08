@@ -247,11 +247,9 @@ class CharacterHandler
             Player* player = session->GetPlayer();
             if (player)
             {
-                if (!sRandomPlayerbotMgr.IsRandomBot(player))
-                {
-                    player->SetPlayerbotMgr(new PlayerbotMgr(player));
-                    player->GetPlayerbotMgr()->OnPlayerLogin(player);
-                }
+                player->SetPlayerbotMgr(new PlayerbotMgr(player));
+                player->GetPlayerbotMgr()->OnPlayerLogin(player);
+
                 sRandomPlayerbotMgr.OnPlayerLogin(player);
             }
 #endif
