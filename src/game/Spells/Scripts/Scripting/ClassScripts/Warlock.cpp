@@ -198,7 +198,7 @@ struct Corruption : public AuraScript
 
 struct EyeOfKilrogg : public SpellScript
 {
-    void OnSummon(Spell* spell, Creature* summon) const override
+    void OnSummon(Spell* /*spell*/, Creature* summon) const override
     {
         summon->CastSpell(nullptr, 2585, TRIGGERED_OLD_TRIGGERED);
         summon->DisableThreatPropagationToOwner();
@@ -226,7 +226,7 @@ struct CurseOfDoom : public SpellScript, public AuraScript
 
 struct CurseOfDoomEffect : public SpellScript
 {
-    void OnSummon(Spell* spell, Creature* summon) const override
+    void OnSummon(Spell* /*spell*/, Creature* summon) const override
     {
         summon->CastSpell(nullptr, 42010, TRIGGERED_OLD_TRIGGERED);
     }
@@ -234,7 +234,7 @@ struct CurseOfDoomEffect : public SpellScript
 
 struct DevourMagic : public SpellScript
 {
-    SpellCastResult OnCheckCast(Spell* spell, bool strict) const override
+    SpellCastResult OnCheckCast(Spell* spell, bool /*strict*/) const override
     {
         Unit* target = spell->m_targets.getUnitTarget();
         Unit* caster = spell->GetCaster();
@@ -244,7 +244,7 @@ struct DevourMagic : public SpellScript
             for (auto itr : auras)
             {
                 SpellEntry const* spell = itr.second->GetSpellProto();
-                if (itr.second->GetTarget()->GetObjectGuid() != caster->GetObjectGuid() && spell->Dispel == DISPEL_MAGIC && IsPositiveSpell(spell) && !IsPassiveSpell(spell))
+                if (itr.second->GetTarget()->GetObjectGuid() != caster->GetObjectGuid() && spell->Dispel == DISPEL_MAGIC && (caster->CanAssist(target) ? !IsPositiveSpell(spell) : IsPositiveSpell(spell)) && !IsPassiveSpell(spell))
                     return SPELL_CAST_OK;
             }
         }
@@ -321,6 +321,16 @@ struct SoulLeech : public AuraScript
     }
 };
 
+struct CurseDiminishingDuration : public AuraScript
+{
+    int32 OnDurationCalculate(WorldObject const* caster, Unit const* target, int32 duration) const override
+    {
+        if (caster->IsControlledByPlayer() && target->IsPlayerControlled())
+            return 12000;
+        return duration;
+    }
+};
+
 void LoadWarlockScripts()
 {
     RegisterSpellScript<UnstableAffliction>("spell_unstable_affliction");
@@ -338,4 +348,5 @@ void LoadWarlockScripts()
     RegisterSpellScript<SeedOfCorruptionDamage>("spell_seed_of_corruption_damage");
     RegisterSpellScript<CurseOfDoom>("spell_curse_of_doom");
     RegisterSpellScript<CurseOfDoomEffect>("spell_curse_of_doom_effect");
+    RegisterSpellScript<CurseDiminishingDuration>("spell_curse_diminishing_duration");
 }

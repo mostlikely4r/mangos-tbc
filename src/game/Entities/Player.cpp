@@ -282,7 +282,7 @@ PlayerTaxi::PlayerTaxi()
     memset(m_taximask, 0, sizeof(m_taximask));
 }
 
-void PlayerTaxi::InitTaxiNodesForLevel(uint32 race, uint32 level)
+void PlayerTaxi::InitTaxiNodesForLevel(uint32 race, uint32 /*level*/)
 {
     // race specific initial known nodes: capital and taxi hub masks
     switch (race)
@@ -746,7 +746,7 @@ void Player::CleanupsBeforeDelete()
     Unit::CleanupsBeforeDelete();
 }
 
-bool Player::ValidateAppearance(uint8 race, uint8 class_, uint8 gender, uint8 hairID, uint8 hairColor, uint8 faceID, uint8 facialHair, uint8 skinColor, bool create /*=false*/)
+bool Player::ValidateAppearance(uint8 race, uint8 /*class_*/, uint8 gender, uint8 hairID, uint8 hairColor, uint8 faceID, uint8 facialHair, uint8 skinColor, bool /*create = false*/)
 {
     // For Skin type is always 0
     CharSectionsEntry const* skinEntry = GetCharSectionEntry(race, SECTION_TYPE_SKIN, gender, 0, skinColor);
@@ -784,7 +784,7 @@ bool Player::Create(uint32 guidlow, const std::string& name, uint8 race, uint8 c
 {
     // FIXME: outfitId not used in player creating
 
-    Object::_Create(guidlow, 0, HIGHGUID_PLAYER);
+    Object::_Create(guidlow, guidlow, 0, HIGHGUID_PLAYER);
 
     m_name = name;
 
@@ -1685,8 +1685,11 @@ void Player::SetDeathState(DeathState s)
 
         clearResurrectRequestData();
 
+        bool petAlive = true; // PET_SAVE_REAGENTS when pet is unsummoned
         if (Pet* pet = GetPet())
-            RemovePet(pet->IsAlive() ? PET_SAVE_REAGENTS : PET_SAVE_AS_CURRENT);
+            petAlive = pet->IsAlive();
+
+        RemovePet(petAlive ? PET_SAVE_REAGENTS : PET_SAVE_AS_CURRENT);
 
         // Remove guardians (only players are supposed to have pets/guardians removed on death)
         RemoveGuardians();
@@ -2625,6 +2628,23 @@ void Player::SetGMVisible(bool on)
 
         SetVisibility(VISIBILITY_OFF);
     }
+}
+
+bool Player::isAllowedWhisperFrom(ObjectGuid guid)
+{
+    if (PlayerSocial* social = GetSocial())
+        if (social->HasFriend(guid))
+            return true;
+
+    if (Group* group = GetGroup())
+        if (group->IsMember(guid))
+            return true;
+
+    if (Guild* guild = sGuildMgr.GetGuildById(GetGuildId()))
+        if (guild->GetMemberSlot(guid))
+            return true;
+
+    return false;
 }
 
 ///- If the player is invited, remove him. If the group if then only 1 person, disband the group.
@@ -5541,7 +5561,7 @@ void Player::UpdateWeaponSkill(WeaponAttackType attType)
     UpdateAllCritPercentages();
 }
 
-void Player::UpdateCombatSkills(Unit* pVictim, WeaponAttackType attType, bool defence)
+void Player::UpdateCombatSkills(Unit* /*pVictim*/, WeaponAttackType attType, bool defence)
 {
     const uint16 skillId = (defence ? SKILL_DEFENSE : GetWeaponSkillIdForAttack(attType));
     const uint16 skill = GetSkillValuePure(skillId);
@@ -7014,7 +7034,8 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea, bool force)
     if (!zone)
         return;
 
-    if (m_zoneUpdateId != newZone || force)
+    bool updateZone = m_zoneUpdateId != newZone || force;
+    if (updateZone)
     {
         // handle outdoor pvp zones
         sOutdoorPvPMgr.HandlePlayerLeaveZone(this, m_zoneUpdateId);
@@ -7027,17 +7048,19 @@ void Player::UpdateZone(uint32 newZone, uint32 newArea, bool force)
             Weather* wth = GetMap()->GetWeatherSystem()->FindOrCreateWeather(newZone);
             wth->SendWeatherUpdateToPlayer(this);
         }
-
-        GetMap()->SendZoneDynamicInfo(this);
     }
 
-    if (m_areaUpdateId != newArea || force)
+    bool updateArea = m_areaUpdateId != newArea || force;
+    if (updateArea)
     {
         SendInitWorldStates(newZone, newArea); // only if really enters to new zone, not just area change, works strange...
 
         sWorldState.HandlePlayerLeaveArea(this, m_areaUpdateId);
         sWorldState.HandlePlayerEnterArea(this, newArea);
     }
+
+    if (updateZone || updateArea)
+        GetMap()->SendZoneDynamicInfo(this, updateZone, updateArea);
 
     m_zoneUpdateId    = newZone;
     m_zoneUpdateTimer = ZONE_UPDATE_INTERVAL;
@@ -8059,16 +8082,22 @@ void Player::RemovedInsignia(Player* looterPlr)
         return;
 
     // If not released spirit, do it !
+    bool repop = false;
     if (m_deathTimer > 0)
     {
         m_deathTimer = 0;
         BuildPlayerRepop();
         RepopAtGraveyard();
+        repop = true;
     }
 
     Corpse* corpse = GetCorpse();
     if (!corpse)
         return;
+
+    WorldPacket data(SMSG_PLAYER_SKINNED, 0);
+    data << uint8(repop);
+    GetSession()->SendPacket(data);
 
     // We have to convert player corpse to bones, not to be able to resurrect there
     // SpawnCorpseBones isn't handy, 'cos it saves player while he in BG
@@ -8136,34 +8165,6 @@ void Player::SendInitWorldStates(uint32 zoneid, uint32 areaid) const
         case 3521:                                          // Zangarmarsh
             if (OutdoorPvP* outdoorPvP = sOutdoorPvPMgr.GetScript(zoneid))
                 outdoorPvP->FillInitialWorldStates(data, count);
-            break;
-        case 2597:                                          // AV
-            if (bg && bg->GetTypeId() == BATTLEGROUND_AV)
-                bg->FillInitialWorldStates(data, count);
-            break;
-        case 3277:                                          // WS
-            if (bg && bg->GetTypeId() == BATTLEGROUND_WS)
-                bg->FillInitialWorldStates(data, count);
-            break;
-        case 3358:                                          // AB
-            if (bg && bg->GetTypeId() == BATTLEGROUND_AB)
-                bg->FillInitialWorldStates(data, count);
-            break;
-        case 3820:                                          // EY
-            if (bg && bg->GetTypeId() == BATTLEGROUND_EY)
-                bg->FillInitialWorldStates(data, count);
-            break;
-        case 3698:                                          // Nagrand Arena
-            if (bg && bg->GetTypeId() == BATTLEGROUND_NA)
-                bg->FillInitialWorldStates(data, count);
-            break;
-        case 3702:                                          // Blade's Edge Arena
-            if (bg && bg->GetTypeId() == BATTLEGROUND_BE)
-                bg->FillInitialWorldStates(data, count);
-            break;
-        case 3968:                                          // Ruins of Lordaeron
-            if (bg && bg->GetTypeId() == BATTLEGROUND_RL)
-                bg->FillInitialWorldStates(data, count);
             break;
     }
 
@@ -15020,7 +15021,7 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder* holder)
     //"health, power1, power2, power3, power4, power5, exploredZones, equipmentCache, ammoId, knownTitles, actionBars, grantableLevels, fishingSteps  FROM characters WHERE guid = '%u'", GUID_LOPART(m_guid));
     QueryResult* result = holder->GetResult(PLAYER_LOGIN_QUERY_LOADFROM);
 
-    Object::_Create(guid.GetCounter(), 0, HIGHGUID_PLAYER);
+    Object::_Create(guid.GetCounter(), guid.GetCounter(), 0, HIGHGUID_PLAYER);
 
     if (!result)
     {
@@ -21343,7 +21344,12 @@ void Player::_LoadSkills(QueryResult* result)
                     continue;
 
                 if (entry->flags & SKILL_FLAG_MAXIMIZED)
-                    value = max = GetSkillMaxForLevel();
+                {
+                    if (entry->flags & SKILL_FLAG_DISPLAY_AS_MONO)
+                        max = GetSkillMaxForLevel();
+                    
+                    value = max;
+                }
 
                 if (SkillTiersEntry const* steps = sSkillTiersStore.LookupEntry(entry->skillTierId))
                 {

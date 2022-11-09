@@ -486,40 +486,16 @@ PersistentAreaAura::~PersistentAreaAura()
 {
 }
 
-SingleEnemyTargetAura::SingleEnemyTargetAura(SpellEntry const* spellproto, SpellEffectIndex eff, int32 const* currentDamage, int32 const* currentBasePoints, SpellAuraHolder* holder, Unit* target,
-        Unit* caster, Item* castItem) : Aura(spellproto, eff, currentDamage, currentBasePoints, holder, target, caster, castItem)
-{
-    if (caster)
-        m_castersTargetGuid = caster->GetSelectionGuid();
-}
-
-SingleEnemyTargetAura::~SingleEnemyTargetAura()
-{
-}
-
-Unit* SingleEnemyTargetAura::GetTriggerTarget() const
-{
-    return ObjectAccessor::GetUnit(*(m_spellAuraHolder->GetTarget()), m_castersTargetGuid);
-}
-
-Aura* CreateAura(SpellEntry const* spellproto, SpellEffectIndex eff, int32 const* currentDamage, int32 const* currentBasePoints, SpellAuraHolder* holder, Unit* target, Unit* caster, Item* castItem)
+Aura* CreateAura(SpellEntry const* spellproto, SpellEffectIndex eff, int32 const* currentDamage, int32 const* currentBasePoints, SpellAuraHolder* holder, Unit* target, Unit* caster, Item* castItem, uint64 scriptValue)
 {
     Aura* aura = nullptr;
     if (IsAreaAuraEffect(spellproto->Effect[eff]))
         aura = new AreaAura(spellproto, eff, currentDamage, currentBasePoints, holder, target, caster, castItem);
 
     if (!aura)
-    {
-        uint32 triggeredSpellId = spellproto->EffectTriggerSpell[eff];
-        if (SpellEntry const* triggeredSpellInfo = sSpellTemplate.LookupEntry<SpellEntry>(triggeredSpellId))
-            for (unsigned int i : triggeredSpellInfo->EffectImplicitTargetA)
-                if (i == TARGET_UNIT_CHANNEL_TARGET)
-                    aura = new SingleEnemyTargetAura(spellproto, eff, currentDamage, currentBasePoints, holder, target, caster, castItem);
-    }
-
-    if (!aura)
         aura = new Aura(spellproto, eff, currentDamage, currentBasePoints, holder, target, caster, castItem);
 
+    aura->SetScriptValue(scriptValue); // must be done before OnAuraInit
     aura->OnAuraInit();
     return aura;
 }
@@ -1037,7 +1013,6 @@ void Aura::PickTargetsForSpellTrigger(Unit*& triggerCaster, Unit*& triggerTarget
         case TARGET_LOCATION_UNIT_RANDOM_SIDE: // fireball barrage
         case TARGET_UNIT_ENEMY:
         case TARGET_UNIT:
-        case TARGET_UNIT_CHANNEL_TARGET: // Electrified net
             triggerCaster = GetCaster();
             if (!triggerCaster)
                 triggerCaster = triggerTarget;
@@ -1047,6 +1022,10 @@ void Aura::PickTargetsForSpellTrigger(Unit*& triggerCaster, Unit*& triggerTarget
         case TARGET_UNIT_CASTER:
             triggerCaster = GetTarget();
             triggerTarget = GetTarget();
+            break;
+        case TARGET_UNIT_CHANNEL_TARGET: // Electrified net
+            triggerCaster = GetCaster();
+            triggerTarget = dynamic_cast<Unit*>(triggerCaster->GetChannelObject());
             break;
         case TARGET_LOCATION_CHANNEL_TARGET_DEST:
             triggerCaster = GetCaster();
@@ -4652,7 +4631,7 @@ void Aura::HandleAuraModIncreaseSwimSpeed(bool /*apply*/, bool Real)
     GetTarget()->UpdateSpeed(MOVE_SWIM, true);
 }
 
-void Aura::HandleAuraModDecreaseSpeed(bool apply, bool Real)
+void Aura::HandleAuraModDecreaseSpeed(bool /*apply*/, bool Real)
 {
     // all applied/removed only at real aura add/remove
     if (!Real)
@@ -5042,7 +5021,7 @@ void Aura::HandleAuraPowerBurn(bool apply, bool /*Real*/)
     m_isPeriodic = apply;
 }
 
-void Aura::HandlePrayerOfMending(bool apply, bool /*Real*/)
+void Aura::HandlePrayerOfMending(bool /*apply*/, bool /*Real*/)
 {
 
 }
@@ -7016,7 +6995,8 @@ void Aura::PeriodicTick()
 
             OnPeriodicCalculateAmount(pdamage);
 
-            if (target->IsImmuneToSchool(spellProto, (1 << GetEffIndex()))) // TODO: Check if we need to check for avoiding immune
+            // first aid confirmed to work through immune when selfcast
+            if (pCaster != target && target->IsImmuneToSchool(spellProto, (1 << GetEffIndex()))) // TODO: Check if we need to check for avoiding immune
             {
                 Unit::SendSpellOrDamageImmune(GetCasterGuid(), target, spellProto->Id);
                 break;
@@ -7851,7 +7831,7 @@ SpellAuraHolder::SpellAuraHolder(SpellEntry const* spellproto, Unit* target, Wor
 
     Unit* unitCaster = caster && caster->isType(TYPEMASK_UNIT) ? (Unit*)caster : nullptr;
 
-    m_duration = m_maxDuration = CalculateSpellDuration(spellproto, unitCaster);
+    m_duration = m_maxDuration = CalculateSpellDuration(spellproto, unitCaster, target, m_auraScript);
 
     if (m_maxDuration == -1 || (m_isPassive && spellproto->DurationIndex == 0))
         m_permanent = true;
@@ -8807,8 +8787,11 @@ void SpellAuraHolder::SendAuraDurationForCaster(Player* caster)
     data << m_target->GetPackGUID();
     data << uint8(GetAuraSlot());
     data << uint32(GetId());
-    data << uint32(GetAuraMaxDuration());                   // full
-    data << uint32(GetAuraDuration());                      // remain
+    if (!GetSpellProto()->HasAttribute(SPELL_ATTR_EX5_DO_NOT_DISPLAY_DURATION))
+    {
+        data << uint32(GetAuraMaxDuration());                   // full
+        data << uint32(GetAuraDuration());                      // remain
+    }
     caster->GetSession()->SendPacket(data);
 }
 
@@ -8882,7 +8865,7 @@ void SpellAuraHolder::OnDispel(Unit* dispeller, uint32 dispellingSpellId, uint32
         script->OnDispel(this, dispeller, dispellingSpellId, originalStacks);
 }
 
-uint32 Aura::CalculateAuraEffectValue(Unit* caster, Unit* target, SpellEntry const* spellProto, SpellEffectIndex effIdx, uint32 value)
+uint32 Aura::CalculateAuraEffectValue(Unit* caster, Unit* /*target*/, SpellEntry const* spellProto, SpellEffectIndex effIdx, uint32 value)
 {
     switch (spellProto->EffectApplyAuraName[effIdx])
     {

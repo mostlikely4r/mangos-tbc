@@ -40,6 +40,8 @@
 #include "Anticheat/Anticheat.hpp"
 #include "AI/ScriptDevAI/scripts/custom/Transmogrification.h"
 
+#include <openssl/md5.h>
+
 #include <mutex>
 #include <deque>
 #include <algorithm>
@@ -351,7 +353,7 @@ void WorldSession::ProcessByteBufferException(WorldPacket const& packet)
             GetAccountId(), GetRemoteAddress().c_str());
         m_anticheat->RecordCheat(CHEAT_ACTION_INFO_LOG, "Anticrash", "ByteBufferException");
         ObjectGuid guid = _player->GetObjectGuid();
-        GetMessager().AddMessage([guid](WorldSession* world) -> void
+        GetMessager().AddMessage([guid](WorldSession* /*world*/) -> void
         {
             ObjectAccessor::KickPlayer(guid);
         });
@@ -359,7 +361,7 @@ void WorldSession::ProcessByteBufferException(WorldPacket const& packet)
 }
 
 /// Update the WorldSession (triggered by World update)
-bool WorldSession::Update(uint32 diff)
+bool WorldSession::Update(uint32 /*diff*/)
 {
     GetMessager().Execute(this);
 
@@ -796,6 +798,7 @@ void WorldSession::LogoutPlayer()
         // calls to GetMap in this case may cause crashes
         if (_player->IsInWorld())
         {
+            _player->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_LEAVE_WORLD);
             Map* _map = _player->GetMap();
             _map->Remove(_player, true);
         }
@@ -1118,15 +1121,27 @@ void WorldSession::SetAccountData(AccountDataType type, time_t time_, const std:
 
 const uint8 emptyArray[16] = { 0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0 };
 
-void WorldSession::SendAccountDataTimes(uint32 /*mask*/)
+void WorldSession::SendAccountDataTimes()
 {
-    // unknown identifier on TBC - if sent all 0 - client only sends
-    // if sent all 1 - client requests everything
-    // probably needs to be some sort of client unique identifier I was not able to reverse
-    bool configValue = sWorld.getConfig(CONFIG_BOOL_ACCOUNT_DATA);
-    WorldPacket data(SMSG_ACCOUNT_DATA_TIMES, 128);
-    for (int i = 0; i < 32; ++i)
-        data << uint32(configValue);
+    WorldPacket data(SMSG_ACCOUNT_DATA_TIMES, NUM_ACCOUNT_DATA_TYPES * MD5_DIGEST_LENGTH);
+    for (AccountData const& itr : m_accountData)
+    {
+        if (itr.Data.empty())
+        {
+            for (int i = 0; i < MD5_DIGEST_LENGTH; i++)
+                data << uint8(0);
+        }
+        else
+        {
+            MD5_CTX md5;
+            MD5_Init(&md5);
+            MD5_Update(&md5, itr.Data.c_str(), itr.Data.size());
+
+            uint8 fileHash[MD5_DIGEST_LENGTH];
+            MD5_Final(fileHash, &md5);
+            data.append(fileHash, MD5_DIGEST_LENGTH);
+        }
+    }
     SendPacket(data);
 }
 

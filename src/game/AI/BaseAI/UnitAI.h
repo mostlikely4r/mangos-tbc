@@ -397,7 +397,7 @@ class UnitAI : public CombatActions
         /*
          * Notifies AI on successful spelllist spell cast
          */
-        virtual void OnSpellCast(SpellEntry const* spellInfo, Unit* target) {}
+        virtual void OnSpellCast(SpellEntry const* /*spellInfo*/, Unit* /*target*/) {}
 
         /*
          * Notifies AI on stealth alert for player nearby
@@ -488,23 +488,23 @@ class UnitAI : public CombatActions
         void SetRootSelf(bool apply, bool combatOnly = false); // must call parent JustDied if this is used
         void ClearSelfRoot();
 
-        virtual void HandleDelayedInstantAnimation(SpellEntry const* spellInfo);
+        virtual void HandleDelayedInstantAnimation(SpellEntry const* /*spellInfo*/);
         virtual bool IsTargetingRestricted() { return GetCombatScriptStatus(); }
 
         virtual void OnTaunt() {}
 
-        virtual void HandleAssistanceCall(Unit* sender, Unit* invoker) {} // implemented for creatures
+        virtual void HandleAssistanceCall(Unit* /*sender*/, Unit* /*invoker*/) {} // implemented for creatures
 
         virtual bool IsPreventingDeath() const { return false; }
 
         bool IsMeleeEnabled() const { return m_meleeEnabled; }
 
         // EAI compatibility layer
-        virtual void UpdateEventTimers(const uint32 diff) {}
+        virtual void UpdateEventTimers(const uint32 /*diff*/) {}
 
         // Combat AI components
         virtual void ExecuteActions();
-        virtual void ExecuteAction(uint32 action) {}
+        virtual void ExecuteAction(uint32 /*action*/) {}
 
         // Caster AI components
         void AddMainSpell(uint32 spellId);
@@ -556,6 +556,13 @@ class UnitAI : public CombatActions
 
         // compatibility layer for removing script_waypoint from escort ai using waypoint_path
         virtual uint32 GetCurrentWaypointPath() const { return 0; }
+
+        //////////////////////////////////////////////////////////////////////////
+        // Some group Event/Action, not sure best place is here
+        //////////////////////////////////////////////////////////////////////////
+        // member of the group got killed
+        virtual void CreatureGroupMemberDied(Unit* /*killed*/) {}
+
     protected:
         virtual std::string GetAIName() { return "UnitAI"; }
         void DespawnGuids(GuidVector& spawns); // despawns all creature guids and clears contents
